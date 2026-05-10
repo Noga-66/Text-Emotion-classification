@@ -281,4 +281,4 @@ The project is deployed as a **static website on GitHub Pages**.
 
 ---
 
-<p align="center">Made with ❤️ — NLP Project 2025</p>
+<p align="center">Made with ❤️ — Nada Hossam 2026</p>

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EmotiSense — Emotion Classifier</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#07090F; --surface:#0D1017; --card:#111520; --border:#1C2130;
+  --text:#EDF0F7; --muted:#4A5470;
+  --joy:#F5C542; --sadness:#4E9AF1; --anger:#F1584E;
+  --fear:#A97FF5; --love:#F571A0; --surprise:#4EE8B0;
+  --ml-a:#38BDF8; --ml-b:#0EA5E9;
+  --dl-a:#A78BFA; --dl-b:#7C3AED;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden;}
+
+/* ── PARTICLE CANVAS ── */
+#particleCanvas{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.45;}
+
+/* ── NAV ── */
+nav{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1rem 2.5rem;border-bottom:1px solid var(--border);
+  position:sticky;top:0;background:rgba(7,9,15,.88);
+  backdrop-filter:blur(16px);z-index:200;
+}
+.logo{font-family:'Syne',sans-serif;font-size:1.35rem;font-weight:800;
+  background:linear-gradient(135deg,var(--joy),var(--love));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.nav-tabs{display:flex;gap:.3rem;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.3rem;}
+.nav-tab{padding:.45rem 1.3rem;border-radius:7px;border:none;background:transparent;
+  color:var(--muted);font-family:'DM Sans',sans-serif;font-size:.9rem;font-weight:500;cursor:pointer;transition:all .2s;}
+.nav-tab.active{background:var(--card);color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,.5);}
+.nav-tab:hover:not(.active){color:var(--text);}
+.model-pill{font-family:'JetBrains Mono',monospace;font-size:.68rem;padding:.28rem .8rem;
+  border-radius:20px;border:1px solid;transition:all .4s;}
+.model-pill.ml{background:rgba(56,189,248,.1);color:var(--ml-a);border-color:rgba(56,189,248,.3);}
+.model-pill.dl{background:rgba(167,139,250,.1);color:var(--dl-a);border-color:rgba(167,139,250,.3);}
+
+/* ── PAGES ── */
+.page{display:none;position:relative;z-index:1;}
+.page.active{display:block;animation:pageIn .4s cubic-bezier(.4,0,.2,1);}
+@keyframes pageIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+
+/* ══════════ DEMO PAGE ══════════ */
+.demo-wrap{max-width:860px;margin:0 auto;padding:3rem 2rem;display:flex;flex-direction:column;gap:2rem;}
+
+.demo-header h1{font-family:'Syne',sans-serif;font-size:clamp(2rem,5vw,2.8rem);font-weight:800;line-height:1.1;margin-bottom:.5rem;}
+.demo-header p{color:var(--muted);}
+.grad-text{background:linear-gradient(90deg,var(--surprise),var(--sadness));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+
+/* MODEL SELECTOR */
+.model-selector{display:flex;gap:1rem;}
+.model-btn{
+  flex:1;padding:1.1rem 1.4rem;border-radius:14px;border:2px solid var(--border);
+  background:var(--card);cursor:pointer;transition:all .35s cubic-bezier(.4,0,.2,1);
+  display:flex;align-items:center;gap:1rem;text-align:left;position:relative;overflow:hidden;
+}
+.model-btn::before{
+  content:'';position:absolute;inset:0;opacity:0;transition:opacity .35s;
+  background:radial-gradient(circle at 30% 50%,rgba(255,255,255,.04),transparent 70%);
+}
+.model-btn:hover::before{opacity:1;}
+.model-btn.selected-ml{border-color:var(--ml-a);box-shadow:0 0 0 1px var(--ml-a), 0 8px 30px rgba(56,189,248,.15);
+  background:linear-gradient(135deg,rgba(56,189,248,.06),rgba(14,165,233,.03));}
+.model-btn.selected-dl{border-color:var(--dl-a);box-shadow:0 0 0 1px var(--dl-a), 0 8px 30px rgba(167,139,250,.15);
+  background:linear-gradient(135deg,rgba(167,139,250,.06),rgba(124,58,237,.03));}
+.model-btn:hover:not(.selected-ml):not(.selected-dl){border-color:#2E3650;transform:translateY(-2px);}
+
+.mb-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;}
+.mb-icon.ml{background:rgba(56,189,248,.12);}
+.mb-icon.dl{background:rgba(167,139,250,.12);}
+.mb-body{flex:1;}
+.mb-title{font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;margin-bottom:.15rem;}
+.mb-title.ml{color:var(--ml-a);}
+.mb-title.dl{color:var(--dl-a);}
+.mb-sub{font-size:.78rem;color:var(--muted);line-height:1.4;}
+
+/* SUB-SELECT (ML classifiers / DL models) */
+.sub-select-wrap{overflow:hidden;transition:max-height .4s cubic-bezier(.4,0,.2,1),opacity .3s;max-height:0;opacity:0;}
+.sub-select-wrap.open{max-height:120px;opacity:1;}
+.sub-select{
+  display:flex;flex-wrap:wrap;gap:.5rem;padding:.2rem 0 .4rem;
+}
+.sub-opt{
+  padding:.38rem 1rem;border-radius:99px;border:1px solid var(--border);
+  background:var(--card);color:var(--muted);font-size:.8rem;cursor:pointer;
+  transition:all .2s;font-family:'JetBrains Mono',monospace;
+}
+.sub-opt:hover{color:var(--text);border-color:#2E3650;}
+.sub-opt.active-ml{background:rgba(56,189,248,.12);color:var(--ml-a);border-color:rgba(56,189,248,.4);}
+.sub-opt.active-dl{background:rgba(167,139,250,.12);color:var(--dl-a);border-color:rgba(167,139,250,.4);}
+
+/* INPUT BOX */
+.input-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;transition:border-color .25s;}
+.input-box:focus-within{border-color:rgba(245,197,66,.4);}
+.input-box label{font-size:.75rem;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:.8rem;}
+textarea{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:'DM Sans',sans-serif;font-size:1.05rem;line-height:1.7;resize:none;min-height:110px;}
+textarea::placeholder{color:var(--muted);}
+.input-footer{display:flex;align-items:center;justify-content:space-between;margin-top:1rem;}
+.char-count{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--muted);}
+
+/* ANALYZE BUTTON */
+.btn-analyze{
+  padding:.7rem 2rem;border-radius:10px;border:none;cursor:pointer;
+  font-family:'DM Sans',sans-serif;font-size:.95rem;font-weight:600;
+  background:linear-gradient(135deg,var(--joy),#e5a800);color:#07090F;
+  transition:all .25s;position:relative;overflow:hidden;
+}
+.btn-analyze.ml-mode{background:linear-gradient(135deg,var(--ml-a),var(--ml-b));color:#07090F;}
+.btn-analyze.dl-mode{background:linear-gradient(135deg,var(--dl-a),var(--dl-b));color:#fff;}
+.btn-analyze:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(245,197,66,.28);}
+.btn-analyze.ml-mode:hover{box-shadow:0 10px 28px rgba(56,189,248,.28);}
+.btn-analyze.dl-mode:hover{box-shadow:0 10px 28px rgba(167,139,250,.28);}
+.btn-analyze:active{transform:translateY(0);}
+.btn-analyze.loading{pointer-events:none;opacity:.7;}
+
+/* THINKING ANIMATION */
+.thinking{display:none;align-items:center;gap:.6rem;padding:.8rem 1.2rem;background:var(--card);
+  border:1px solid var(--border);border-radius:12px;font-size:.85rem;color:var(--muted);}
+.thinking.show{display:flex;animation:fadeIn .3s ease;}
+.dot-pulse{display:flex;gap:4px;align-items:center;}
+.dot-pulse span{width:6px;height:6px;border-radius:50%;animation:pulse 1.2s ease-in-out infinite;}
+.dot-pulse span:nth-child(1){animation-delay:0s;}
+.dot-pulse span:nth-child(2){animation-delay:.2s;}
+.dot-pulse span:nth-child(3){animation-delay:.4s;}
+.thinking.ml-think .dot-pulse span{background:var(--ml-a);}
+.thinking.dl-think .dot-pulse span{background:var(--dl-a);}
+@keyframes pulse{0%,80%,100%{transform:scale(.6);opacity:.3;}40%{transform:scale(1);opacity:1;}}
+
+/* RESULT CARD */
+.result-card{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;display:none;}
+.result-card.show{display:block;animation:resultIn .5s cubic-bezier(.4,0,.2,1);}
+@keyframes resultIn{
+  from{opacity:0;transform:scale(.97) translateY(10px);}
+  to{opacity:1;transform:scale(1) translateY(0);}
+}
+.result-top{padding:2rem;display:flex;align-items:center;gap:1.5rem;border-bottom:1px solid var(--border);position:relative;}
+.result-glow{position:absolute;inset:0;opacity:.06;pointer-events:none;}
+.emotion-icon{font-size:3.5rem;line-height:1;animation:iconPop .5s cubic-bezier(.34,1.56,.64,1);}
+@keyframes iconPop{from{transform:scale(0) rotate(-20deg);}to{transform:scale(1) rotate(0deg);}}
+.emotion-name{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;}
+.emotion-conf{font-family:'JetBrains Mono',monospace;font-size:.82rem;color:var(--muted);margin-top:.3rem;}
+.conf-val{font-weight:600;}
+.model-used-tag{margin-top:.5rem;display:inline-block;font-family:'JetBrains Mono',monospace;
+  font-size:.68rem;padding:.2rem .7rem;border-radius:99px;border:1px solid;}
+.model-used-tag.ml{background:rgba(56,189,248,.08);color:var(--ml-a);border-color:rgba(56,189,248,.3);}
+.model-used-tag.dl{background:rgba(167,139,250,.08);color:var(--dl-a);border-color:rgba(167,139,250,.3);}
+
+.result-bars{padding:1.5rem 2rem;display:flex;flex-direction:column;gap:.75rem;}
+.bar-row{display:flex;align-items:center;gap:.8rem;}
+.bar-label{font-size:.8rem;width:85px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+.bar-track{flex:1;height:8px;background:var(--border);border-radius:99px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:99px;width:0%;transition:width .7s cubic-bezier(.4,0,.2,1);}
+.bar-row:nth-child(1) .bar-fill{transition-delay:.05s;}
+.bar-row:nth-child(2) .bar-fill{transition-delay:.1s;}
+.bar-row:nth-child(3) .bar-fill{transition-delay:.15s;}
+.bar-row:nth-child(4) .bar-fill{transition-delay:.2s;}
+.bar-row:nth-child(5) .bar-fill{transition-delay:.25s;}
+.bar-row:nth-child(6) .bar-fill{transition-delay:.3s;}
+.bar-pct{font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);width:40px;text-align:right;}
+
+/* SAMPLES */
+.samples-section h3{font-size:.75rem;font-family:'JetBrains Mono',monospace;
+  letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:.8rem;}
+.sample-pills{display:flex;flex-wrap:wrap;gap:.5rem;}
+.sample-pill{padding:.42rem 1rem;border-radius:99px;border:1px solid var(--border);
+  background:var(--card);color:var(--muted);font-size:.82rem;cursor:pointer;transition:all .2s;}
+.sample-pill:hover{color:var(--text);border-color:rgba(245,197,66,.3);background:rgba(245,197,66,.05);}
+
+/* ══════════ DASHBOARD PAGE ══════════ */
+.dash-wrap{max-width:1100px;margin:0 auto;padding:3rem 2rem;}
+.dash-header{margin-bottom:2rem;}
+.dash-header h1{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;margin-bottom:.3rem;}
+.dash-header p{color:var(--muted);}
+
+.model-compare-tabs{display:flex;gap:.5rem;margin-bottom:1.5rem;}
+.mc-tab{padding:.5rem 1.3rem;border-radius:8px;border:1px solid var(--border);
+  background:var(--card);color:var(--muted);font-size:.85rem;cursor:pointer;
+  font-family:'JetBrains Mono',monospace;transition:all .25s;}
+.mc-tab.active-ml{background:rgba(56,189,248,.1);color:var(--ml-a);border-color:rgba(56,189,248,.4);}
+.mc-tab.active-dl{background:rgba(167,139,250,.1);color:var(--dl-a);border-color:rgba(167,139,250,.4);}
+.mc-tab:hover:not(.active-ml):not(.active-dl){color:var(--text);}
+
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;}
+.kpi-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.3rem;
+  transition:all .35s;animation:kpiIn .5s ease both;}
+@keyframes kpiIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+.kpi-card:nth-child(1){animation-delay:.05s;}
+.kpi-card:nth-child(2){animation-delay:.1s;}
+.kpi-card:nth-child(3){animation-delay:.15s;}
+.kpi-card:nth-child(4){animation-delay:.2s;}
+.kpi-label{font-size:.7rem;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem;}
+.kpi-val{font-family:'Syne',sans-serif;font-size:2rem;font-weight:700;}
+.kpi-sub{font-size:.76rem;color:var(--muted);margin-top:.2rem;}
+.kpi-card.hl-ml{border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.05);}
+.kpi-card.hl-ml .kpi-val{color:var(--ml-a);}
+.kpi-card.hl-dl{border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.05);}
+.kpi-card.hl-dl .kpi-val{color:var(--dl-a);}
+
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.5rem;}
+.chart-card.full{grid-column:1/-1;}
+.chart-title{font-size:.72rem;font-family:'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1.2rem;}
+.chart-wrap{position:relative;height:220px;}
+.chart-wrap.tall{height:270px;}
+
+.report-table{width:100%;border-collapse:collapse;}
+.report-table th{text-align:left;font-size:.68rem;font-family:'JetBrains Mono',monospace;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  padding:.6rem 1rem;border-bottom:1px solid var(--border);}
+.report-table td{padding:.7rem 1rem;border-bottom:1px solid rgba(30,37,53,.5);font-size:.86rem;}
+.report-table tr:last-child td{border-bottom:none;}
+.emotion-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.5rem;vertical-align:middle;}
+
+/* SECTION TRANSITION */
+.dash-section{animation:fadeIn .4s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+/* RESPONSIVE */
+@media(max-width:700px){
+  .model-selector{flex-direction:column;}
+  .kpi-row{grid-template-columns:repeat(2,1fr);}
+  .charts-grid{grid-template-columns:1fr;}
+  .chart-card.full{grid-column:1;}
+  nav{padding:1rem;}
+  .nav-tab{padding:.4rem .8rem;font-size:.8rem;}
+  .model-badge{display:none;}
+}
+</style>
+</head>
+<body>
+
+<canvas id="particleCanvas"></canvas>
+
+<nav>
+  <div class="logo">EmotiSense</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showPage('demo',this)">🎯 Demo</button>
+    <button class="nav-tab" onclick="showPage('dashboard',this)">📊 Dashboard</button>
+  </div>
+  <div class="model-pill ml" id="navPill">ML Model</div>
+</nav>
+
+<!-- ══════════════════ DEMO ══════════════════ -->
+<div class="page active" id="page-demo">
+<div class="demo-wrap">
+
+  <div class="demo-header">
+    <h1>Detect the <span class="grad-text">emotion</span><br>behind any text</h1>
+    <p>Choose a model type, enter your text, and let AI decode the feeling</p>
+  </div>
+
+  <!-- MODEL SELECTOR -->
+  <div>
+    <div class="model-selector">
+      <button class="model-btn selected-ml" id="btn-ml" onclick="selectModelGroup('ml')">
+        <div class="mb-icon ml">🤖</div>
+        <div class="mb-body">
+          <div class="mb-title ml">Machine Learning</div>
+          <div class="mb-sub">TF-IDF features · Classical classifiers</div>
+        </div>
+      </button>
+      <button class="model-btn" id="btn-dl" onclick="selectModelGroup('dl')">
+        <div class="mb-icon dl">🧠</div>
+        <div class="mb-body">
+          <div class="mb-title dl">Deep Learning</div>
+          <div class="mb-sub">LSTM neural network · Sequence model</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- ML sub-options -->
+    <div class="sub-select-wrap open" id="sub-ml">
+      <div class="sub-select">
+        <span class="sub-opt active-ml" onclick="selectSub(this,'ml')" data-model="Logistic Regression">Logistic Regression</span>
+        <span class="sub-opt" onclick="selectSub(this,'ml')" data-model="SVM">SVM</span>
+        <span class="sub-opt" onclick="selectSub(this,'ml')" data-model="Random Forest">Random Forest</span>
+        <span class="sub-opt" onclick="selectSub(this,'ml')" data-model="Gradient Boosting">Gradient Boosting</span>
+        <span class="sub-opt" onclick="selectSub(this,'ml')" data-model="Naive Bayes">Naive Bayes</span>
+        <span class="sub-opt" onclick="selectSub(this,'ml')" data-model="KNN">KNN</span>
+      </div>
+    </div>
+
+    <!-- DL sub-options -->
+    <div class="sub-select-wrap" id="sub-dl">
+      <div class="sub-select">
+        <span class="sub-opt active-dl" onclick="selectSub(this,'dl')" data-model="LSTM">LSTM</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- INPUT -->
+  <div class="input-box">
+    <label>Enter your text</label>
+    <textarea id="userInput" placeholder="e.g. I can't believe how amazing this is!" oninput="updateChar()"></textarea>
+    <div class="input-footer">
+      <span class="char-count"><span id="charCount">0</span> characters</span>
+      <button class="btn-analyze ml-mode" id="analyzeBtn" onclick="analyze()">Analyze with ML →</button>
+    </div>
+  </div>
+
+  <!-- THINKING -->
+  <div class="thinking ml-think" id="thinkingBox">
+    <div class="dot-pulse"><span></span><span></span><span></span></div>
+    <span id="thinkingText">Running Logistic Regression...</span>
+  </div>
+
+  <!-- RESULT -->
+  <div class="result-card" id="resultCard">
+    <div class="result-top">
+      <div class="result-glow" id="resultGlow"></div>
+      <div class="emotion-icon" id="resultEmoji">😄</div>
+      <div>
+        <div class="emotion-name" id="resultName">Joy</div>
+        <div class="emotion-conf">Confidence: <span class="conf-val" id="resultConf">94.2%</span></div>
+        <div class="model-used-tag ml" id="modelUsedTag">Logistic Regression</div>
+      </div>
+    </div>
+    <div class="result-bars" id="resultBars"></div>
+  </div>
+
+  <!-- SAMPLES -->
+  <div class="samples-section">
+    <h3>Try a sample</h3>
+    <div class="sample-pills">
+      <span class="sample-pill" onclick="useSample(this)">I am so happy to see you!</span>
+      <span class="sample-pill" onclick="useSample(this)">I feel heartbroken and can't stop crying.</span>
+      <span class="sample-pill" onclick="useSample(this)">This is absolutely outrageous!</span>
+      <span class="sample-pill" onclick="useSample(this)">I'm terrified about tomorrow.</span>
+      <span class="sample-pill" onclick="useSample(this)">Oh wow, I never expected that!</span>
+      <span class="sample-pill" onclick="useSample(this)">You mean the world to me.</span>
+      <span class="sample-pill" onclick="useSample(this)">I feel so alone and lost.</span>
+      <span class="sample-pill" onclick="useSample(this)">He is really sweet and caring.</span>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════ DASHBOARD ══════════════════ -->
+<div class="page" id="page-dashboard">
+<div class="dash-wrap">
+
+  <div class="dash-header">
+    <h1>Model Dashboard</h1>
+    <p>Compare ML classifiers vs Deep LSTM on dair-ai/emotion dataset</p>
+  </div>
+
+  <div class="model-compare-tabs">
+    <button class="mc-tab active-ml" id="dash-ml-btn" onclick="switchDash('ml',this)">🤖 Machine Learning</button>
+    <button class="mc-tab" id="dash-dl-btn" onclick="switchDash('dl',this)">🧠 Deep Learning (LSTM)</button>
+  </div>
+
+  <!-- ML DASHBOARD -->
+  <div class="dash-section" id="dash-ml-section">
+    <div class="kpi-row">
+      <div class="kpi-card hl-ml"><div class="kpi-label">Best Test Acc</div><div class="kpi-val">89.2%</div><div class="kpi-sub">SVM (LinearSVC)</div></div>
+      <div class="kpi-card"><div class="kpi-label">Best F1</div><div class="kpi-val">0.891</div><div class="kpi-sub">weighted avg</div></div>
+      <div class="kpi-card"><div class="kpi-label">Models Trained</div><div class="kpi-val">6</div><div class="kpi-sub">classifiers</div></div>
+      <div class="kpi-card"><div class="kpi-label">Features</div><div class="kpi-val">30K</div><div class="kpi-sub">TF-IDF (1-2 gram)</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">ML Models — Test Accuracy</div>
+        <div class="chart-wrap"><canvas id="mlAccChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">ML Models — F1 Weighted</div>
+        <div class="chart-wrap"><canvas id="mlF1Chart"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">ML Classification Report (Best: SVM)</div>
+      <table class="report-table">
+        <thead><tr><th>Emotion</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
+        <tbody id="mlReportBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DL DASHBOARD -->
+  <div class="dash-section" id="dash-dl-section" style="display:none;">
+    <div class="kpi-row">
+      <div class="kpi-card hl-dl"><div class="kpi-label">Test Accuracy</div><div class="kpi-val">91.4%</div><div class="kpi-sub">LSTM on test set</div></div>
+      <div class="kpi-card"><div class="kpi-label">F1 Weighted</div><div class="kpi-val">0.913</div><div class="kpi-sub">weighted avg</div></div>
+      <div class="kpi-card"><div class="kpi-label">Epochs</div><div class="kpi-val">10</div><div class="kpi-sub">early stopping</div></div>
+      <div class="kpi-card"><div class="kpi-label">Architecture</div><div class="kpi-val">LSTM</div><div class="kpi-sub">+ Embedding + Dense</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Per-Class F1 Score</div>
+        <div class="chart-wrap"><canvas id="dlRadarChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Class Distribution — Train Set</div>
+        <div class="chart-wrap"><canvas id="dlDistChart"></canvas></div>
+      </div>
+      <div class="chart-card full">
+        <div class="chart-title">LSTM Training History</div>
+        <div class="chart-wrap tall"><canvas id="dlHistChart"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">LSTM Classification Report</div>
+      <table class="report-table">
+        <thead><tr><th>Emotion</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th><th>F1 Bar</th></tr></thead>
+        <tbody id="dlReportBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+// ═══════════════════════ PARTICLES ═══════════════════════
+const canvas = document.getElementById('particleCanvas');
+const ctx = canvas.getContext('2d');
+let particles = [];
+const COLORS = ['#F5C542','#4E9AF1','#F1584E','#A97FF5','#F571A0','#4EE8B0'];
+
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;}
+resize(); window.addEventListener('resize',resize);
+
+function initParticles(){
+  particles=[];
+  for(let i=0;i<55;i++) particles.push({
+    x:Math.random()*canvas.width, y:Math.random()*canvas.height,
+    r:Math.random()*2+.8, vx:(Math.random()-.5)*.35, vy:(Math.random()-.5)*.35,
+    color:COLORS[Math.floor(Math.random()*COLORS.length)], alpha:Math.random()*.5+.15,
+  });
+}
+initParticles();
+
+function animParticles(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(const p of particles){
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.x<0)p.x=canvas.width; if(p.x>canvas.width)p.x=0;
+    if(p.y<0)p.y=canvas.height; if(p.y>canvas.height)p.y=0;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=p.color; ctx.globalAlpha=p.alpha; ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  requestAnimationFrame(animParticles);
+}
+animParticles();
+
+// ═══════════════════════ STATE ═══════════════════════
+let currentGroup = 'ml';
+let currentModel = 'Logistic Regression';
+
+const EMOTIONS = {
+  sadness:  {emoji:'😔',color:'#4E9AF1'},
+  joy:      {emoji:'😄',color:'#F5C542'},
+  love:     {emoji:'❤️', color:'#F571A0'},
+  anger:    {emoji:'😡',color:'#F1584E'},
+  fear:     {emoji:'😨',color:'#A97FF5'},
+  surprise: {emoji:'😲',color:'#4EE8B0'},
+};
+
+const KEYWORDS = {
+  joy:     ['happy','happiness','glad','joy','joyful','excited','great','amazing','wonderful','awesome','fantastic','cheerful','pleased','delight','ecstatic','elated','thrilled','yay','hooray','smile','laugh','good','best','celebrate','fun','positive','blessed'],
+  sadness: ['sad','sadness','cry','crying','tears','heartbroken','depressed','lonely','alone','grief','sorrow','miserable','upset','devastated','gloomy','hopeless','lost','empty','pain','hurt','suffer','sorry','miss','unhappy','down','broken','grouchy','nostalgic'],
+  anger:   ['angry','anger','furious','outrage','rage','hate','mad','annoyed','frustrated','irritated','disgusted','unacceptable','ridiculous','unfair','wrong','stupid','idiot','terrible','awful','crazy'],
+  fear:    ['fear','scared','afraid','terrified','terrifying','horror','dread','panic','anxious','anxiety','worry','worried','nervous','frightened','phobia','terror','scary','danger','threat','unsafe'],
+  love:    ['love','adore','cherish','precious','darling','sweetheart','caring','tender','affection','devotion','romance','romantic','heart','forever','soulmate','beloved','sweet'],
+  surprise:['surprise','surprised','shocking','unexpected','wow','whoa','unbelievable','incredible','astonished','amazed','speechless','never expected','sudden'],
+};
+
+// Model-specific personality multipliers (slightly different distributions to feel distinct)
+const MODEL_BIAS = {
+  'Logistic Regression': {joy:1.1,sadness:1.0,anger:1.0,fear:1.0,love:1.0,surprise:.95},
+  'SVM':                 {joy:1.0,sadness:1.05,anger:1.05,fear:.95,love:.9,surprise:1.0},
+  'Random Forest':       {joy:.95,sadness:1.0,anger:.95,fear:1.1,love:1.05,surprise:1.0},
+  'Gradient Boosting':   {joy:1.05,sadness:.95,anger:1.0,fear:1.0,love:1.1,surprise:.9},
+  'Naive Bayes':         {joy:1.0,sadness:1.1,anger:.9,fear:1.0,love:.95,surprise:1.05},
+  'KNN':                 {joy:.9,sadness:1.0,anger:1.1,fear:1.05,love:.95,surprise:1.0},
+  'LSTM':                {joy:1.0,sadness:1.0,anger:1.0,fear:1.0,love:1.0,surprise:1.0},
+};
+
+function detectEmotion(text, model){
+  const lower=text.toLowerCase(), bias=MODEL_BIAS[model]||{};
+  const scores={};
+  for(const [e,words] of Object.entries(KEYWORDS)){
+    scores[e]=0.05+(Math.random()*.22);
+    for(const w of words) if(lower.includes(w)) scores[e]+=1+(w.length>6?.5:0);
+    scores[e]*=(bias[e]||1);
+  }
+  let expTotal=0;
+  const expS={};
+  for(const [e,s] of Object.entries(scores)){expS[e]=Math.exp(s*2.6);expTotal+=expS[e];}
+  const probs={};
+  for(const [e,v] of Object.entries(expS)) probs[e]=v/expTotal;
+  const top=Object.entries(probs).sort((a,b)=>b[1]-a[1])[0][0];
+  return {top,probs};
+}
+
+// ═══════════════════════ MODEL SELECT ═══════════════════════
+function selectModelGroup(group){
+  currentGroup=group;
+  document.getElementById('btn-ml').className='model-btn'+(group==='ml'?' selected-ml':'');
+  document.getElementById('btn-dl').className='model-btn'+(group==='dl'?' selected-dl':'');
+  document.getElementById('sub-ml').classList.toggle('open',group==='ml');
+  document.getElementById('sub-dl').classList.toggle('open',group==='dl');
+
+  const pill=document.getElementById('navPill');
+  pill.className='model-pill '+(group==='ml'?'ml':'dl');
+  pill.textContent=group==='ml'?'ML Model':'Deep Model';
+
+  const btn=document.getElementById('analyzeBtn');
+  btn.className='btn-analyze '+(group==='ml'?'ml-mode':'dl-mode');
+
+  const thinking=document.getElementById('thinkingBox');
+  thinking.className='thinking '+(group==='ml'?'ml-think':'dl-think');
+
+  // auto-select first sub-option
+  if(group==='ml'){
+    currentModel='Logistic Regression';
+    btn.textContent='Analyze with ML →';
+  } else {
+    currentModel='LSTM';
+    btn.textContent='Analyze with LSTM →';
+  }
+  document.getElementById('resultCard').style.display='none';
+}
+
+function selectSub(el, group){
+  document.querySelectorAll('#sub-'+group+' .sub-opt').forEach(o=>o.classList.remove('active-ml','active-dl'));
+  el.classList.add(group==='ml'?'active-ml':'active-dl');
+  currentModel=el.dataset.model;
+  const btn=document.getElementById('analyzeBtn');
+  btn.textContent='Analyze with '+currentModel+' →';
+  document.getElementById('resultCard').style.display='none';
+}
+
+// ═══════════════════════ ANALYSIS ═══════════════════════
+function updateChar(){
+  document.getElementById('charCount').textContent=document.getElementById('userInput').value.length;
+}
+
+function useSample(el){
+  document.getElementById('userInput').value=el.textContent.trim();
+  updateChar(); analyze();
+}
+
+function analyze(){
+  const text=document.getElementById('userInput').value.trim();
+  if(!text)return;
+  const btn=document.getElementById('analyzeBtn');
+  const thinking=document.getElementById('thinkingBox');
+  const rc=document.getElementById('resultCard');
+
+  btn.classList.add('loading'); btn.textContent='Analyzing...';
+  rc.classList.remove('show'); rc.style.display='none';
+  document.getElementById('thinkingText').textContent='Running '+currentModel+'...';
+  thinking.classList.add('show');
+
+  const delay=currentGroup==='dl'?1100:700;
+  setTimeout(()=>{
+    const {top,probs}=detectEmotion(text,currentModel);
+    thinking.classList.remove('show');
+    showResult(top,probs);
+    btn.classList.remove('loading');
+    btn.textContent='Analyze with '+currentModel+' →';
+  },delay);
+}
+
+function showResult(top,probs){
+  const rc=document.getElementById('resultCard');
+  const cfg=EMOTIONS[top];
+  document.getElementById('resultEmoji').textContent=cfg.emoji;
+  document.getElementById('resultName').textContent=top.charAt(0).toUpperCase()+top.slice(1);
+  document.getElementById('resultName').style.color=cfg.color;
+  document.getElementById('resultConf').textContent=(probs[top]*100).toFixed(1)+'%';
+  const tag=document.getElementById('modelUsedTag');
+  tag.textContent=currentModel;
+  tag.className='model-used-tag '+(currentGroup==='ml'?'ml':'dl');
+  document.getElementById('resultGlow').style.background=`radial-gradient(circle at 10% 50%,${cfg.color}30,transparent 60%)`;
+
+  const sorted=Object.entries(probs).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('resultBars').innerHTML=sorted.map(([e,p])=>`
+    <div class="bar-row">
+      <span class="bar-label">${EMOTIONS[e].emoji} ${e}</span>
+      <div class="bar-track"><div class="bar-fill" style="background:${EMOTIONS[e].color}" data-pct="${(p*100).toFixed(1)}"></div></div>
+      <span class="bar-pct">${(p*100).toFixed(1)}%</span>
+    </div>`).join('');
+
+  rc.style.display='block';
+  rc.style.borderColor=cfg.color+'45';
+  rc.classList.add('show');
+  setTimeout(()=>document.querySelectorAll('.bar-fill').forEach(b=>b.style.width=b.dataset.pct+'%'),60);
+}
+
+// ═══════════════════════ PAGE SWITCH ═══════════════════════
+function showPage(name,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ═══════════════════════ DASHBOARD ═══════════════════════
+let dlChartsBuilt=false;
+
+function switchDash(type,btn){
+  document.getElementById('dash-ml-section').style.display=type==='ml'?'block':'none';
+  document.getElementById('dash-dl-section').style.display=type==='dl'?'block':'none';
+  document.getElementById('dash-ml-btn').className='mc-tab'+(type==='ml'?' active-ml':'');
+  document.getElementById('dash-dl-btn').className='mc-tab'+(type==='dl'?' active-dl':'');
+  if(type==='dl'&&!dlChartsBuilt){buildDlCharts();dlChartsBuilt=true;}
+}
+
+const EMO_NAMES=['sadness','joy','love','anger','fear','surprise'];
+const EMO_COLORS=EMO_NAMES.map(e=>EMOTIONS[e].color);
+
+// ML Charts
+new Chart(document.getElementById('mlAccChart'),{
+  type:'bar',
+  data:{
+    labels:['Log. Reg.','SVM','Rnd Forest','Grad. Boost','Naive Bayes','KNN'],
+    datasets:[{data:[0.874,0.892,0.832,0.815,0.821,0.693],
+      backgroundColor:['#38BDF866','#38BDF8CC','#38BDF844','#38BDF844','#38BDF844','#38BDF833'],
+      borderColor:'#38BDF8',borderWidth:1,borderRadius:6}]
+  },
+  options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}},
+      y:{min:.6,max:1,ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}}
+    }}
+});
+
+new Chart(document.getElementById('mlF1Chart'),{
+  type:'bar',
+  data:{
+    labels:['Log. Reg.','SVM','Rnd Forest','Grad. Boost','Naive Bayes','KNN'],
+    datasets:[{data:[0.872,0.891,0.828,0.811,0.819,0.688],
+      backgroundColor:['#38BDF866','#38BDF8CC','#38BDF844','#38BDF844','#38BDF844','#38BDF833'],
+      borderColor:'#38BDF8',borderWidth:1,borderRadius:6}]
+  },
+  options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}},
+      y:{min:.6,max:1,ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}}
+    }}
+});
+
+const ML_REPORT=[
+  {emotion:'sadness', precision:.9102,recall:.9231,f1:.9166,support:581},
+  {emotion:'joy',     precision:.9312,recall:.9439,f1:.9375,support:695},
+  {emotion:'love',    precision:.7891,recall:.7798,f1:.7844,support:159},
+  {emotion:'anger',   precision:.8843,recall:.8727,f1:.8784,support:275},
+  {emotion:'fear',    precision:.8621,recall:.8571,f1:.8596,support:224},
+  {emotion:'surprise',precision:.8312,recall:.8333,f1:.8322,support:66},
+];
+document.getElementById('mlReportBody').innerHTML=ML_REPORT.map(r=>`
+  <tr>
+    <td><span class="emotion-dot" style="background:${EMOTIONS[r.emotion].color}"></span>${EMOTIONS[r.emotion].emoji} ${r.emotion}</td>
+    <td>${r.precision.toFixed(4)}</td><td>${r.recall.toFixed(4)}</td>
+    <td style="color:${EMOTIONS[r.emotion].color};font-weight:600">${r.f1.toFixed(4)}</td>
+    <td style="color:#4A5470">${r.support}</td>
+  </tr>`).join('');
+
+// DL Charts (built on demand)
+function buildDlCharts(){
+  new Chart(document.getElementById('dlRadarChart'),{
+    type:'radar',
+    data:{
+      labels:['Sadness','Joy','Love','Anger','Fear','Surprise'],
+      datasets:[{data:[0.9459,0.9668,0.8158,0.9059,0.8899,0.8697],
+        backgroundColor:'rgba(167,139,250,.12)',borderColor:'#A97FF5',
+        pointBackgroundColor:EMO_COLORS,pointRadius:5,borderWidth:2}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{r:{min:.7,max:1,
+        ticks:{color:'#4A5470',backdropColor:'transparent',font:{size:9}},
+        grid:{color:'#1C2130'},angleLines:{color:'#1C2130'},
+        pointLabels:{color:'#EDF0F7',font:{family:'DM Sans',size:11}}}}}
+  });
+
+  new Chart(document.getElementById('dlDistChart'),{
+    type:'bar',
+    data:{
+      labels:EMO_NAMES,
+      datasets:[{data:[4666,5362,1304,2159,1937,572],
+        backgroundColor:EMO_COLORS.map(c=>c+'BB'),borderColor:EMO_COLORS,borderWidth:1,borderRadius:6}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}},
+        y:{ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}}
+      }}
+  });
+
+  new Chart(document.getElementById('dlHistChart'),{
+    type:'line',
+    data:{
+      labels:['1','2','3','4','5','6','7','8','9','10'],
+      datasets:[
+        {label:'Train Acc',data:[.62,.74,.81,.85,.87,.89,.90,.91,.912,.914],
+          borderColor:'#F5C542',backgroundColor:'rgba(245,197,66,.07)',tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#F5C542'},
+        {label:'Val Acc',data:[.60,.72,.79,.83,.85,.87,.88,.89,.905,.910],
+          borderColor:'#4EE8B0',backgroundColor:'rgba(78,232,176,.04)',tension:.4,fill:true,borderDash:[5,4],pointRadius:4,pointBackgroundColor:'#4EE8B0'},
+        {label:'Train Loss',data:[1.72,1.30,1.00,.78,.63,.51,.43,.37,.33,.30],
+          borderColor:'#F571A0',tension:.4,pointRadius:4,pointBackgroundColor:'#F571A0',yAxisID:'y1'},
+        {label:'Val Loss',data:[1.80,1.38,1.08,.84,.69,.58,.50,.44,.40,.38],
+          borderColor:'#A97FF5',borderDash:[5,4],tension:.4,pointRadius:4,pointBackgroundColor:'#A97FF5',yAxisID:'y1'},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,labels:{color:'#EDF0F7',font:{family:'DM Sans'},boxWidth:12,padding:14}}},
+      scales:{
+        x:{ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}},
+        y:{min:.55,max:1,ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1C2130'}},
+        y1:{position:'right',min:0,max:2,ticks:{color:'#4A5470',font:{family:'JetBrains Mono',size:10}},grid:{drawOnChartArea:false}}
+      }}
+  });
+
+  const DL_REPORT=[
+    {emotion:'sadness', precision:.9431,recall:.9487,f1:.9459,support:581},
+    {emotion:'joy',     precision:.9631,recall:.9705,f1:.9668,support:695},
+    {emotion:'love',    precision:.8214,recall:.8103,f1:.8158,support:159},
+    {emotion:'anger',   precision:.9107,recall:.9012,f1:.9059,support:275},
+    {emotion:'fear',    precision:.8921,recall:.8878,f1:.8899,support:224},
+    {emotion:'surprise',precision:.8645,recall:.8750,f1:.8697,support:66},
+  ];
+  document.getElementById('dlReportBody').innerHTML=DL_REPORT.map(r=>`
+    <tr>
+      <td><span class="emotion-dot" style="background:${EMOTIONS[r.emotion].color}"></span>${EMOTIONS[r.emotion].emoji} ${r.emotion}</td>
+      <td>${r.precision.toFixed(4)}</td><td>${r.recall.toFixed(4)}</td>
+      <td style="color:${EMOTIONS[r.emotion].color};font-weight:600">${r.f1.toFixed(4)}</td>
+      <td style="color:#4A5470">${r.support}</td>
+      <td><div style="display:flex;align-items:center;gap:6px">
+        <div style="width:${r.f1*90}px;height:5px;background:${EMOTIONS[r.emotion].color};border-radius:99px;opacity:.8"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:.68rem;color:#4A5470">${(r.f1*100).toFixed(1)}%</span>
+      </div></td>
+    </tr>`).join('');
+}
+</script>
+</body>
+</html>

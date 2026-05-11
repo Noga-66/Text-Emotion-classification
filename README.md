@@ -243,7 +243,8 @@ print(f"{emotion} ({confidence:.1%})")    # → sadness (94.3%)
 The project is deployed as a **static website on GitHub Pages**.
 
 ### Live Demo
-🔗 **[https://username.github.io/emotion-classifier/](https://username.github.io/emotion-classifier/)**
+
+🔗 **[ live Demo](https://noga-66.github.io/Text-Emotion-classification/)**
 
 ### Deploy Steps
 

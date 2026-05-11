@@ -35,7 +35,7 @@ This project builds an end-to-end **text emotion classification** system that de
 | **Deep Learning** | LSTM Neural Network | ~92% |
 
 ---
-  ![brain_animation](https://noga-66.github.io/Text-Emotion-classification/)
+
 
 ## 🎭 Emotions
 
